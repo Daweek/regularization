@@ -1,4 +1,10 @@
-#exlude data, output and wandb
+#Directories
+#exclude data, output and wandb
+
 data/
 output/
 wandb/
+
+#Files
+#for pyenv
+.python-version
