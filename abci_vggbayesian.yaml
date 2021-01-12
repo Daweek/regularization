@@ -1,0 +1,29 @@
+name: abcivggbayesian
+
+program: wrapper.py
+
+method: bayes
+
+early_terminate:
+  eta: 3
+  max_iter: 100
+  s: 2
+  type: hyperband
+
+metric:
+  goal: minimize
+  name: val_loss
+
+parameters:
+  epochs:
+    values: [100]
+  batch_size:
+    values: [32]
+  learning_rate:
+    values: [4.0e-3, 5.0e-3, 6.0e-3]
+  momentum:
+    values: [0.9, 0.8, 0.7]
+  weight_decay:
+    values: [4.0e-4, 5.0e-4, 6.0e-4]
+  modeltype:
+    values: [ 1 ]

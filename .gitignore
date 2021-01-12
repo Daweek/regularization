@@ -1,0 +1,4 @@
+#exlude data, output and wandb
+data/
+output/
+wandb/
