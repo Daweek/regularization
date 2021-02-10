@@ -10,6 +10,9 @@ import os
 import wandb
 from models import *
 
+## From Scheduler
+from warmup_scheduler import GradualWarmupScheduler
+
 ## From Univa Grid System
 class UnivaInfo:
     def __init__(self):
@@ -77,7 +80,7 @@ class ProgressMeter(object):
         fmt = '{:' + str(num_digits) + 'd}'
         return '[' + fmt + '/' + fmt.format(num_batches) + ']'
 
-def train(train_loader,model,criterion,optimizer,epoch,device):
+def train(train_loader,model,criterion,optimizer,epoch,device,scheduler=None):
     batch_time = AverageMeter('Time', ':.4f')
     train_loss = AverageMeter('Loss', ':.6f')
     train_acc = AverageMeter('Accuracy', ':.6f')
@@ -87,14 +90,26 @@ def train(train_loader,model,criterion,optimizer,epoch,device):
         prefix="Epoch: [{}]".format(epoch))
     model.train()
     t = time.perf_counter()
+
+    #For the scheduler
+    steps=0
+    total_steps = len(train_loader)
+
     for batch_idx, (data, target) in enumerate(train_loader):
+        steps += 1
+        #Debug for scheduler
+        #print("total_steps= ", total_steps)
+
         data = data.to(device)
         target = target.to(device)
         output = model(data)
         loss = criterion(output, target)
         train_loss.update(loss.item(), data.size(0))
         pred = output.data.max(1)[1]
+        print('Pred',pred)
         acc = 100. * pred.eq(target.data).cpu().sum() / target.size(0)
+        print('pred.eq',pred.eq(target.data).cpu().sum())
+        print('target.size',target.size(0))
         train_acc.update(acc, data.size(0))
         optimizer.zero_grad()
         loss.backward()
@@ -103,6 +118,18 @@ def train(train_loader,model,criterion,optimizer,epoch,device):
             batch_time.update(time.perf_counter() - t)
             t = time.perf_counter()
             progress.display(batch_idx)
+            #print0('LR: ', optimizer.param_groups[0]['lr'])
+        ## For the scheduler
+        if scheduler is not None:
+            #print('epoch',epoch)
+            aux = (epoch+1) - 1 + float(steps) / (total_steps)
+            #print("scheduler step: ",aux)
+            scheduler.step(aux)
+            #scheduler.step()
+            #scheduler.step(epoch - 1 + float(steps) / total_steps)
+            
+            
+
     return train_loss.avg, train_acc.avg
 
 def validate(val_loader,model,criterion,device):
@@ -130,13 +157,13 @@ def main():
     parser = argparse.ArgumentParser(description='PyTorch CIFAR10 Example Regularization')
     parser.add_argument('--bs', '--batch_size', type=int, default=32, metavar='N',
                         help='input batch size for training (default: 32)')
-    parser.add_argument('--epochs', type=int, default=10, metavar='N',
+    parser.add_argument('--epochs', type=int, default=100, metavar='N',
                         help='number of epochs to train (default: 10)')
-    parser.add_argument('--lr', '--learning_rate', type=float, default=1.0e-02, metavar='LR',
+    parser.add_argument('--lr', '--learning_rate', type=float, default=0.024495, metavar='LR',
                         help='learning rate (default: 1.0e-02)')
-    parser.add_argument('--momentum', type=float, default=0.9, metavar='M',
+    parser.add_argument('--momentum', type=float, default=0.8158, metavar='M',
                         help='momentum (default: 0.9)')
-    parser.add_argument('--wd', '--weight_decay', type=float, default=5.0e-04, metavar='W',
+    parser.add_argument('--wd', '--weight_decay', type=float, default=0.000010, metavar='W',
                         help='learning rate (default: 5.0e-04)')
     parser.add_argument('--modeltype', type=str, default='VGG19', metavar='MDLTYP',
                         help='Model (default: VGG19, ResNet18 )')
@@ -153,7 +180,7 @@ def main():
     device = torch.device('cuda',rank % ngpus)
 
     if rank==0:
-        wandb.init(project="hyerparametersbayesian")
+        wandb.init(project="lr_scheduler")
         wandb.config.update(args)
 
     transform_train = transforms.Compose([
@@ -238,16 +265,30 @@ def main():
     optimizer = torch.optim.SGD(model.parameters(), lr=args.lr,
             momentum=args.momentum, weight_decay=args.wd)
 
+    ## Include scheduler
+
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer,T_max=args.epochs, eta_min=0.)
+
+    #if C.get()['lr_schedule'].get('warmup', None) and C.get()['lr_schedule']['warmup']['epoch'] > 0:
+    # scheduler = GradualWarmupScheduler(
+    #     optimizer,
+    #     multiplier=1,
+    #     total_epoch=1,
+    #     after_scheduler=scheduler
+    # )
+
+
     for epoch in range(args.epochs):
         model.train()
-        train_loss, train_acc = train(train_loader,model,criterion,optimizer,epoch,device)
+        train_loss, train_acc = train(train_loader,model,criterion,optimizer,epoch,device,scheduler)
         val_loss, val_acc = validate(val_loader,model,criterion,device)
         if rank==0:
             wandb.log({
                 'train_loss': train_loss,
                 'train_acc': train_acc,
                 'val_loss': val_loss,
-                'val_acc': val_acc
+                'val_acc': val_acc,
+                'lr':optimizer.param_groups[0]['lr']
                 })
 
     dist.destroy_process_group()
